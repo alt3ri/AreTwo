@@ -2,18 +2,27 @@
 
 use crate::store;
 use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
-use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_s3::primitives::{ByteStream, DateTime};
+use aws_sdk_s3::presigning::PresigningConfig;
+use aws_sdk_s3::types::{Delete, ObjectIdentifier};
 use aws_sdk_s3::{Client, Config};
 use base64::Engine;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
+use std::time::{Duration, SystemTime};
+use tauri::{AppHandle, Emitter};
+use tokio::io::AsyncWriteExt;
 
 pub const MAX_KEYS: i32 = 1000;
+
+/// S3 caps a single DeleteObjects request at 1000 keys.
+const DELETE_BATCH: usize = 1000;
 
 #[derive(Default)]
 pub struct R2 {
     clients: Mutex<HashMap<String, Client>>,
+    canceled: Mutex<HashSet<String>>,
 }
 
 #[derive(Serialize)]
@@ -66,16 +75,24 @@ pub struct TextPreview {
     pub truncated: bool,
 }
 
-// ---------- pure helpers (unit tested) ----------
-
-/// "a/b/" -> "a/", "a/" -> "", "" -> ""
-pub fn parent_prefix(prefix: &str) -> String {
-    let trimmed = prefix.trim_end_matches('/');
-    match trimmed.rfind('/') {
-        Some(i) => trimmed[..=i].to_string(),
-        None => String::new(),
-    }
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderStats {
+    pub files: i64,
+    pub folders: i64,
+    pub size: i64,
+    pub scanned_at: String,
 }
+
+/// Payload of the `transfer://progress` event. Field names already match the TS side.
+#[derive(Clone, Serialize)]
+pub struct Progress {
+    pub id: String,
+    pub transferred: i64,
+    pub total: i64,
+}
+
+// ---------- pure helpers (unit tested) ----------
 
 /// "a/b/" -> "b"
 pub fn folder_name(prefix: &str) -> String {
@@ -96,6 +113,67 @@ pub fn file_name(key: &str) -> String {
 
 fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
+}
+
+/// Folders are zero-byte objects whose key ends in `/`.
+pub fn folder_key(prefix: &str) -> String {
+    if prefix.ends_with('/') {
+        prefix.to_string()
+    } else {
+        format!("{prefix}/")
+    }
+}
+
+/// `CopyObject` needs the source percent-encoded and the SDK will not do it for us.
+/// Unreserved bytes and `/` pass through; everything else becomes `%XX`.
+pub fn encode_copy_source(bucket: &str, key: &str) -> String {
+    let raw = format!("{bucket}/{key}");
+    let mut out = String::with_capacity(raw.len());
+    for byte in raw.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(byte as char);
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+/// The single choke point for every mutating call — commands never check this themselves.
+fn writable(profile: &store::Profile) -> Result<(), String> {
+    if profile.read_only {
+        return Err(format!(
+            "profile \"{}\" is read-only — turn that off in Profiles to make changes",
+            profile.name
+        ));
+    }
+    Ok(())
+}
+
+async fn delete_keys(client: &Client, bucket: &str, keys: &[String]) -> Result<(), String> {
+    for chunk in keys.chunks(DELETE_BATCH) {
+        let mut objects = Vec::with_capacity(chunk.len());
+        for key in chunk {
+            objects.push(ObjectIdentifier::builder().key(key).build().map_err(err)?);
+        }
+        let delete = Delete::builder().set_objects(Some(objects)).build().map_err(err)?;
+        let out = client
+            .delete_objects()
+            .bucket(bucket)
+            .delete(delete)
+            .send()
+            .await
+            .map_err(err)?;
+        if let Some(failure) = out.errors().first() {
+            return Err(format!(
+                "{} could not be deleted: {}",
+                failure.key().unwrap_or("?"),
+                failure.message().unwrap_or("unknown error")
+            ));
+        }
+    }
+    Ok(())
 }
 
 // ---------- client plumbing ----------
@@ -142,6 +220,44 @@ impl R2 {
         let profile = store::profile_by_id(profile_id)?;
         let client = self.client_for(&profile)?;
         Ok((profile, client))
+    }
+
+    /// Same as `conn`, but refuses when the profile is read-only.
+    fn write_conn(&self, profile_id: &str) -> Result<(store::Profile, Client), String> {
+        let (profile, client) = self.conn(profile_id)?;
+        writable(&profile)?;
+        Ok((profile, client))
+    }
+
+    fn emit(&self, app: &AppHandle, id: &str, transferred: i64, total: i64) {
+        let _ = app.emit(
+            "transfer://progress",
+            Progress {
+                id: id.to_string(),
+                transferred,
+                total,
+            },
+        );
+    }
+
+    pub fn cancel_transfer(&self, id: &str) {
+        self.canceled.lock().unwrap().insert(id.to_string());
+    }
+
+    fn is_canceled(&self, id: &str) -> bool {
+        self.canceled.lock().unwrap().contains(id)
+    }
+
+    fn clear_cancel(&self, id: &str) {
+        self.canceled.lock().unwrap().remove(id);
+    }
+
+    async fn exists(client: &Client, bucket: &str, key: &str) -> Result<bool, String> {
+        match client.head_object().bucket(bucket).key(key).send().await {
+            Ok(_) => Ok(true),
+            Err(e) if e.as_service_error().map(|s| s.is_not_found()).unwrap_or(false) => Ok(false),
+            Err(e) => Err(err(e)),
+        }
     }
 
     pub async fn list_buckets(&self, profile_id: &str) -> Result<Vec<String>, String> {
@@ -300,14 +416,261 @@ impl R2 {
         Ok(format!("data:{content_type};base64,{b64}"))
     }
 
-    pub async fn upload(
+    pub async fn test_connection(&self, profile_id: &str) -> Result<String, String> {
+        let buckets = self.list_buckets(profile_id).await?;
+        Ok(format!("OK — {} buckets", buckets.len()))
+    }
+
+    pub async fn presign_get(
         &self,
         profile_id: &str,
         bucket: &str,
         key: &str,
-        path: &str,
-    ) -> Result<(), String> {
+        expires_secs: i64,
+    ) -> Result<String, String> {
         let (_, client) = self.conn(profile_id)?;
+        let config = PresigningConfig::expires_in(Duration::from_secs(
+            expires_secs.clamp(1, 604_800) as u64,
+        ))
+        .map_err(err)?;
+        let request = client
+            .get_object()
+            .bucket(bucket)
+            .key(key)
+            .presigned(config)
+            .await
+            .map_err(err)?;
+        Ok(request.uri().to_string())
+    }
+
+    /// Recursive scan behind the folder-size column. Counts the immediate child
+    /// folders, every file underneath, and their total size.
+    pub async fn folder_stats(
+        &self,
+        profile_id: &str,
+        bucket: &str,
+        prefix: &str,
+    ) -> Result<FolderStats, String> {
+        let (_, client) = self.conn(profile_id)?;
+        let mut token: Option<String> = None;
+        let mut files = 0i64;
+        let mut size = 0i64;
+        let mut folders: HashSet<String> = HashSet::new();
+
+        loop {
+            let out = client
+                .list_objects_v2()
+                .bucket(bucket)
+                .prefix(prefix)
+                .set_continuation_token(token)
+                .max_keys(MAX_KEYS)
+                .send()
+                .await
+                .map_err(err)?;
+
+            for object in out.contents() {
+                let Some(key) = object.key() else { continue };
+                if key.ends_with('/') {
+                    continue;
+                }
+                files += 1;
+                size += object.size().unwrap_or_default();
+                let rest = key.strip_prefix(prefix).unwrap_or(key);
+                if let Some(slash) = rest.find('/') {
+                    folders.insert(rest[..=slash].to_string());
+                }
+            }
+
+            if !out.is_truncated().unwrap_or(false) {
+                break;
+            }
+            token = out.next_continuation_token().map(str::to_string);
+            if token.is_none() {
+                break;
+            }
+        }
+
+        Ok(FolderStats {
+            files,
+            folders: folders.len() as i64,
+            size,
+            scanned_at: DateTime::from(SystemTime::now()).to_string(),
+        })
+    }
+
+    pub async fn delete_objects(
+        &self,
+        profile_id: &str,
+        bucket: &str,
+        keys: Vec<String>,
+    ) -> Result<(), String> {
+        let (_, client) = self.write_conn(profile_id)?;
+        if keys.is_empty() {
+            return Ok(());
+        }
+        delete_keys(&client, bucket, &keys).await
+    }
+
+    /// Re-lists from the start each pass. Continuation tokens would skip objects
+    /// as we delete underneath them; re-listing converges and is cheap enough.
+    pub async fn delete_prefix(
+        &self,
+        profile_id: &str,
+        bucket: &str,
+        prefix: &str,
+    ) -> Result<i64, String> {
+        let (_, client) = self.write_conn(profile_id)?;
+        let mut deleted = 0i64;
+
+        loop {
+            let out = client
+                .list_objects_v2()
+                .bucket(bucket)
+                .prefix(prefix)
+                .max_keys(MAX_KEYS)
+                .send()
+                .await
+                .map_err(err)?;
+            let keys: Vec<String> = out
+                .contents()
+                .iter()
+                .filter_map(|o| o.key().map(str::to_string))
+                .collect();
+            if keys.is_empty() {
+                break;
+            }
+            deleted += keys.len() as i64;
+            delete_keys(&client, bucket, &keys).await?;
+        }
+
+        Ok(deleted)
+    }
+
+    pub async fn copy_object(
+        &self,
+        profile_id: &str,
+        bucket: &str,
+        from_key: &str,
+        to_key: &str,
+        replace: bool,
+    ) -> Result<(), String> {
+        let (_, client) = self.write_conn(profile_id)?;
+        if !replace && Self::exists(&client, bucket, to_key).await? {
+            return Err(format!("{to_key} already exists — pass replace to overwrite"));
+        }
+        client
+            .copy_object()
+            .bucket(bucket)
+            .key(to_key)
+            .copy_source(encode_copy_source(bucket, from_key))
+            .send()
+            .await
+            .map_err(err)?;
+        Ok(())
+    }
+
+    pub async fn copy_prefix(
+        &self,
+        profile_id: &str,
+        bucket: &str,
+        from_prefix: &str,
+        to_prefix: &str,
+        replace: bool,
+    ) -> Result<i64, String> {
+        let (_, client) = self.write_conn(profile_id)?;
+        let mut token: Option<String> = None;
+        let mut copied = 0i64;
+
+        loop {
+            let out = client
+                .list_objects_v2()
+                .bucket(bucket)
+                .prefix(from_prefix)
+                .set_continuation_token(token)
+                .max_keys(MAX_KEYS)
+                .send()
+                .await
+                .map_err(err)?;
+
+            for object in out.contents() {
+                let Some(key) = object.key() else { continue };
+                let suffix = key.strip_prefix(from_prefix).unwrap_or(key);
+                let to_key = format!("{to_prefix}{suffix}");
+                if !replace && Self::exists(&client, bucket, &to_key).await? {
+                    return Err(format!("{to_key} already exists — pass replace to overwrite"));
+                }
+                client
+                    .copy_object()
+                    .bucket(bucket)
+                    .key(&to_key)
+                    .copy_source(encode_copy_source(bucket, key))
+                    .send()
+                    .await
+                    .map_err(err)?;
+                copied += 1;
+            }
+
+            if !out.is_truncated().unwrap_or(false) {
+                break;
+            }
+            token = out.next_continuation_token().map(str::to_string);
+            if token.is_none() {
+                break;
+            }
+        }
+
+        Ok(copied)
+    }
+
+    pub async fn create_folder(
+        &self,
+        profile_id: &str,
+        bucket: &str,
+        prefix: &str,
+    ) -> Result<(), String> {
+        self.create_file(profile_id, bucket, &folder_key(prefix)).await
+    }
+
+    pub async fn create_file(
+        &self,
+        profile_id: &str,
+        bucket: &str,
+        key: &str,
+    ) -> Result<(), String> {
+        let (_, client) = self.write_conn(profile_id)?;
+        client
+            .put_object()
+            .bucket(bucket)
+            .key(key)
+            .body(ByteStream::from(Vec::new()))
+            .send()
+            .await
+            .map_err(err)?;
+        Ok(())
+    }
+
+    /// ponytail: progress is coarse (0 then 100) because a single PutObject has no
+    /// byte callback. Switch to CreateMultipartUpload + UploadPart in ~1 MiB parts
+    /// when per-byte upload progress actually matters.
+    pub async fn upload(
+        &self,
+        app: &AppHandle,
+        profile_id: &str,
+        bucket: &str,
+        key: &str,
+        path: &str,
+        transfer_id: &str,
+        replace: bool,
+    ) -> Result<(), String> {
+        let (_, client) = self.write_conn(profile_id)?;
+        if !replace && Self::exists(&client, bucket, key).await? {
+            return Err(format!("{key} already exists — pass replace to overwrite"));
+        }
+
+        self.clear_cancel(transfer_id);
+        let total = std::fs::metadata(path).map(|m| m.len() as i64).unwrap_or_default();
+        self.emit(app, transfer_id, 0, total);
+
         let body = ByteStream::from_path(path)
             .await
             .map_err(|e| format!("cannot read {path}: {e}"))?;
@@ -319,6 +682,59 @@ impl R2 {
             .send()
             .await
             .map_err(err)?;
+
+        self.emit(app, transfer_id, total, total);
+        Ok(())
+    }
+
+    /// Streams to disk in chunks so a multi-GB download never lands in memory,
+    /// reporting real byte progress and honouring cancellation.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn download(
+        &self,
+        app: &AppHandle,
+        profile_id: &str,
+        bucket: &str,
+        key: &str,
+        dest_path: &str,
+        transfer_id: &str,
+    ) -> Result<(), String> {
+        let (_, client) = self.conn(profile_id)?;
+        self.clear_cancel(transfer_id);
+
+        let mut out = client
+            .get_object()
+            .bucket(bucket)
+            .key(key)
+            .send()
+            .await
+            .map_err(err)?;
+        let total = out.content_length().unwrap_or_default();
+
+        let mut file = tokio::fs::File::create(dest_path)
+            .await
+            .map_err(|e| format!("cannot write {dest_path}: {e}"))?;
+        self.emit(app, transfer_id, 0, total);
+
+        let mut written = 0i64;
+        loop {
+            let Some(chunk) = out.body.next().await else { break };
+            let chunk = chunk.map_err(err)?;
+            if self.is_canceled(transfer_id) {
+                self.clear_cancel(transfer_id);
+                drop(file);
+                let _ = tokio::fs::remove_file(dest_path).await;
+                return Err("transfer canceled".into());
+            }
+            file.write_all(&chunk)
+                .await
+                .map_err(|e| format!("write {dest_path}: {e}"))?;
+            written += chunk.len() as i64;
+            self.emit(app, transfer_id, written, total);
+        }
+
+        file.flush().await.map_err(err)?;
+        self.clear_cancel(transfer_id);
         Ok(())
     }
 }
@@ -328,10 +744,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn prefix_walks_up_one_level() {
-        assert_eq!(parent_prefix("manga/one-piece/001/"), "manga/one-piece/");
-        assert_eq!(parent_prefix("manga/"), "");
-        assert_eq!(parent_prefix(""), "");
+    fn folders_always_end_in_a_slash() {
+        assert_eq!(folder_key("manga/one-piece"), "manga/one-piece/");
+        assert_eq!(folder_key("manga/one-piece/"), "manga/one-piece/");
+        assert_eq!(folder_key(""), "/");
+    }
+
+    #[test]
+    fn copy_source_escapes_what_sigv4_would_otherwise_mangle() {
+        assert_eq!(encode_copy_source("bucket", "a/b.webp"), "bucket/a/b.webp");
+        assert_eq!(encode_copy_source("bucket", "a b+c.webp"), "bucket/a%20b%2Bc.webp");
+        assert_eq!(encode_copy_source("bucket", "日本語.webp"), "bucket/%E6%97%A5%E6%9C%AC%E8%AA%9E.webp");
+        assert_eq!(encode_copy_source("bucket", "50%.txt"), "bucket/50%25.txt");
+    }
+
+    fn profile(read_only: bool) -> store::Profile {
+        store::Profile {
+            name: "Production".into(),
+            read_only,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn read_only_profiles_are_refused_at_the_one_choke_point() {
+        assert!(writable(&profile(false)).is_ok());
+        let denied = writable(&profile(true)).unwrap_err();
+        assert!(denied.contains("read-only"), "{denied}");
+        assert!(denied.contains("Production"), "{denied}");
     }
 
     #[test]
