@@ -5,6 +5,7 @@ import type {
   ListPage,
   ObjectInfo,
   Profile,
+  SearchResult,
   TextPreview,
 } from "./types";
 
@@ -35,6 +36,14 @@ export const presignGet = (profileId: string, bucket: string, key: string, expir
 
 export const folderStats = (profileId: string, bucket: string, prefix: string) =>
   invoke<FolderStats>("folder_stats", { profileId, bucket, prefix });
+
+export const searchObjects = (
+  profileId: string,
+  bucket: string,
+  prefix: string,
+  query: string,
+  limit = 500,
+) => invoke<SearchResult>("search_objects", { profileId, bucket, prefix, query, limit });
 
 export const testConnection = (profileId: string) =>
   invoke<string>("test_connection", { profileId });
@@ -89,3 +98,7 @@ export const createFolder = (profileId: string, bucket: string, prefix: string) 
 
 export const createFile = (profileId: string, bucket: string, key: string) =>
   invoke<void>("create_file", { profileId, bucket, key });
+
+/** Dropped/picked paths → upload candidates; folders come back as one entry per file. */
+export const expandUploadPaths = (paths: string[]) =>
+  invoke<{ path: string; rel: string }[]>("expand_upload_paths", { paths });

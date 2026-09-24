@@ -1,7 +1,12 @@
 // Transfer queue: real byte progress from Rust (`transfer://progress`), 3 concurrent jobs.
 // ponytail: one global queue, no per-profile lanes; add lanes only if a slow profile starves a fast one.
-import { computed, reactive, ref } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
+import {
+  ProgressBarStatus,
+  getCurrentWindow,
+  type ProgressBarState,
+} from "@tauri-apps/api/window";
 import * as api from "../api";
 import type { TransferProgress } from "../types";
 
@@ -53,6 +58,29 @@ async function ensureListener() {
   listening = true;
   await listen<TransferProgress>("transfer://progress", (e) => progress(e.payload));
 }
+
+/** Windows taskbar progress for the whole queue (§23). Progress is 0..100. */
+function taskbar() {
+  // `getCurrentWindow()` throws outside the shell (plain `pnpm dev` in a browser).
+  if (!("__TAURI_INTERNALS__" in window)) return;
+  const active = items.some((t) => t.status === "active");
+  const done = items.reduce((sum, t) => sum + t.transferred, 0);
+  const total = items.reduce((sum, t) => sum + (t.total || 0), 0);
+  const percent = total ? Math.min(100, (done / total) * 100) : 0;
+
+  let state: ProgressBarState;
+  if (!active) state = { status: ProgressBarStatus.None, progress: 0 };
+  else if (queuePaused.value) state = { status: ProgressBarStatus.Paused, progress: percent };
+  else if (!total) state = { status: ProgressBarStatus.Indeterminate, progress: 0 };
+  else state = { status: ProgressBarStatus.Normal, progress: percent };
+
+  void getCurrentWindow()
+    .setProgressBar(state)
+    .catch(() => {});
+}
+
+watch(() => items.map((t) => `${t.status}:${t.transferred}:${t.total}`).join(), taskbar);
+watch(queuePaused, taskbar);
 
 async function run(t: Transfer) {
   t.status = "active";

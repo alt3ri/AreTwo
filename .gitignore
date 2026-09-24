@@ -12,6 +12,17 @@ dist
 dist-ssr
 *.local
 
+# harness state (never wipe these with `git clean -fd`)
+.harness-active
+harness-tasks.json
+harness-tasks.json.bak
+harness-tasks.json.tmp
+harness-progress.txt
+.harness*
+
+# hallmark
+.hallmark*
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

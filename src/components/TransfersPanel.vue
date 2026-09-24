@@ -94,40 +94,40 @@ async function reveal(path: string) {
   display: flex;
   flex-direction: column;
   max-height: 45vh;
-  border-top: 1px solid #34373f;
-  background: #1b1d21;
+  border-top: 1px solid var(--color-line);
+  background: var(--color-panel);
 }
 .thead {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
-  border-bottom: 1px solid #34373f;
+  border-bottom: 1px solid var(--color-line);
   font-size: 13px;
 }
 .counts {
   flex: 1;
-  color: #8a8f99;
+  color: var(--color-text-faint);
   font-size: 12px;
 }
 .thead button,
 .list button {
   padding: 3px 8px;
-  border: 1px solid #3a3d45;
+  border: 1px solid var(--color-line-strong);
   border-radius: 4px;
-  background: #23252b;
-  color: #dfe1e6;
+  background: var(--color-raised);
+  color: var(--color-text);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
 }
 .thead button.on {
-  border-color: #4a6ea9;
-  background: #2c3a55;
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
 }
 .none {
   margin: 10px;
-  color: #8a8f99;
+  color: var(--color-text-faint);
   font-size: 13px;
 }
 .list {
@@ -138,7 +138,7 @@ async function reveal(path: string) {
 }
 .list li {
   padding: 8px 10px;
-  border-bottom: 1px solid #23252b;
+  border-bottom: 1px solid var(--color-raised);
 }
 .line {
   display: flex;
@@ -148,14 +148,14 @@ async function reveal(path: string) {
 }
 .line.sub {
   margin-top: 4px;
-  color: #8a8f99;
+  color: var(--color-text-faint);
   font-size: 12px;
 }
 .spacer {
   flex: 1;
 }
 .arrow {
-  color: #7aa2f7;
+  color: var(--color-focus);
 }
 .name {
   overflow: hidden;
@@ -164,31 +164,31 @@ async function reveal(path: string) {
 }
 .status {
   margin-left: auto;
-  color: #8a8f99;
+  color: var(--color-text-faint);
   font-size: 12px;
 }
 .bar {
   height: 4px;
   margin-top: 6px;
   border-radius: 2px;
-  background: #2a2d33;
+  background: var(--color-line);
   overflow: hidden;
 }
 .fill {
   height: 100%;
-  background: #4a6ea9;
+  background: var(--color-accent);
   transition: width 0.2s linear;
 }
 .list li.done .fill {
-  background: #4f9d69;
+  background: var(--color-ok);
 }
 .list li.failed .fill,
 .list li.canceled .fill {
-  background: #a94a4a;
+  background: var(--color-danger);
 }
 .err {
   margin: 4px 0 0;
-  color: #ff8a8a;
+  color: var(--color-danger);
   font-size: 12px;
 }
 </style>

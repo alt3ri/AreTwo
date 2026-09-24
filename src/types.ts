@@ -59,6 +59,12 @@ export interface FolderStats {
   scannedAt: string;
 }
 
+export interface SearchResult {
+  files: ObjectEntry[];
+  truncated: boolean;
+  scanned: number;
+}
+
 export interface TransferProgress {
   id: string;
   transferred: number;

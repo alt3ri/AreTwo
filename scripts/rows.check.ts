@@ -4,12 +4,14 @@ import assert from "node:assert/strict";
 import {
   basename,
   bucketRows,
+  extensionOf,
   filterRows,
   formatBytes,
   pageRows,
   parentPrefix,
   previewKind,
   sortRows,
+  typeLabel,
   type Row,
 } from "../src/rows.ts";
 
@@ -86,5 +88,25 @@ assert.deepEqual(
   ["9.webp", "10.webp"],
 );
 assert.equal(filterRows(rows, "").length, 4);
+
+// --- extension + type labels (the Type column) ---
+assert.equal(extensionOf("cover.webp"), "webp");
+assert.equal(extensionOf("data.XLSX"), "xlsx");
+assert.equal(extensionOf("README"), "");
+assert.equal(extensionOf(".env"), "", "a dotfile is not an extension");
+
+assert.equal(typeLabel("cover.webp"), "WebP image");
+assert.equal(typeLabel("index.ts"), "TypeScript file");
+assert.equal(typeLabel("archive.zip"), "Zip archive");
+assert.equal(typeLabel("data.XLSX"), "Excel workbook");
+assert.equal(typeLabel("README"), "File");
+assert.equal(typeLabel("odd.qqq"), "QQQ file");
+assert.equal(typeLabel("manga", "folder"), "Folder");
+
+// --- sorting by the Type column keeps folders pinned and groups labels ---
+assert.deepEqual(
+  sortRows(rows, { key: "type", dir: 1 }).map((r) => typeLabel(r.name, r.kind)),
+  ["Folder", "Folder", "WebP image", "WebP image"],
+);
 
 console.log("rows.check: all assertions passed");

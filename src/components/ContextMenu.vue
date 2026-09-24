@@ -46,10 +46,10 @@ onUnmounted(() => {
   margin: 0;
   padding: 4px;
   list-style: none;
-  background: #23252b;
-  border: 1px solid #3a3d45;
+  background: var(--color-raised);
+  border: 1px solid var(--color-line-strong);
   border-radius: 6px;
-  box-shadow: 0 10px 28px #0009;
+  box-shadow: 0 10px 28px var(--color-backdrop);
 }
 .ctx button {
   display: block;
@@ -58,19 +58,19 @@ onUnmounted(() => {
   border: 0;
   border-radius: 4px;
   background: none;
-  color: #dfe1e6;
+  color: var(--color-text);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
 .ctx button:hover:not(:disabled) {
-  background: #34373f;
+  background: var(--color-line);
 }
 .ctx button:disabled {
-  color: #6b6f78;
+  color: var(--color-disabled);
   cursor: default;
 }
 .ctx button.danger {
-  color: #ff8a8a;
+  color: var(--color-danger);
 }
 </style>

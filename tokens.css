@@ -1,0 +1,43 @@
+/* Hallmark · quiet dark utility · existing desktop palette, neutralized.
+ * Audience: R2 users · task: browse and manage objects · no decorative motion.
+ * Pre-emit critique: P4 H4 E4 S5 R5 V4 */
+:root {
+  color-scheme: dark;
+  --color-bg: #18191b;
+  --color-panel: #1e1f22;
+  --color-raised: #292b2f;
+  --color-field: #18191b;
+  --color-line: #303236;
+  --color-line-strong: #43464c;
+  --color-text: #e7e8eb;
+  --color-text-dim: #b0b3bb;
+  --color-text-faint: #9b9fa8;
+  --color-disabled: #777c85;
+  --color-accent: #a9bfe3;
+  --color-accent-ink: #182337;
+  --color-accent-soft: #2b374b;
+  --color-danger: #f3a3a3;
+  --color-danger-soft: #3a2226;
+  --color-ok: #a4c8ae;
+  --color-warn: #d5bb8d;
+  --color-focus: #a9bfe3;
+  --color-folder: #c7b38d;
+  --color-backdrop: #0009;
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --radius-s: 4px;
+  --radius-m: 6px;
+  --text-xs: 11px;
+  --text-s: 12px;
+  --text-m: 13px;
+  --text-l: 15px;
+  --font-ui: 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Mono', Consolas, monospace;
+  --dur-fast: 90ms;
+  --ease-out: ease-out;
+}

@@ -2,7 +2,7 @@
 // Kept dependency-free so `scripts/rows.check.ts` can exercise it directly.
 import type { ListPage } from "./types";
 
-export type SortKey = "name" | "size" | "lastModified" | "storageClass";
+export type SortKey = "name" | "type" | "size" | "lastModified" | "storageClass";
 
 export interface SortState {
   key: SortKey;
@@ -20,6 +20,8 @@ export interface Row {
   size: number;
   lastModified: string;
   storageClass: string;
+  /** Object ETag, files only (folder rows have none). */
+  etag?: string;
   /** Set only while a tab shows the bucket list instead of a bucket's contents. */
   bucketName?: string;
 }
@@ -65,19 +67,30 @@ export function pageRows(page: ListPage): Row[] {
     size: f.size,
     lastModified: f.lastModified,
     storageClass: f.storageClass,
+    etag: f.etag,
   }));
   return [...folders, ...files];
 }
 
 /** Folders stay on top; the sort only orders within each group. */
+function sortValue(row: Row, key: SortKey): string | number {
+  if (key === "size") return row.size;
+  if (key === "type") return typeLabel(row.name, row.kind);
+  return row[key];
+}
+
+/** Folders stay on top; the sort only orders within each group. */
 export function sortRows(rows: Row[], { key, dir }: SortState): Row[] {
-  const cmp = (a: Row, b: Row): number =>
-    key === "size"
-      ? a.size - b.size
-      : a[key].localeCompare(b[key], undefined, { numeric: true, sensitivity: "base" });
-  return [...rows].sort((a, b) =>
-    a.kind === b.kind ? cmp(a, b) * dir : a.kind === "folder" ? -1 : 1,
-  );
+  return [...rows].sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
+    const av = sortValue(a, key);
+    const bv = sortValue(b, key);
+    const cmp =
+      typeof av === "number" && typeof bv === "number"
+        ? av - bv
+        : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: "base" });
+    return cmp * dir;
+  });
 }
 
 export function filterRows(rows: Row[], needle: string): Row[] {
@@ -145,4 +158,79 @@ export function previewKind(name: string): PreviewKind {
   const ext = (dot < 0 ? name : name.slice(dot + 1)).toLowerCase();
   if (IMAGE_EXT.has(ext)) return "image";
   return TEXT_EXT.has(ext) ? "text" : "none";
+}
+
+/** Extension without the dot, lowercased. "" when the name has none. */
+export function extensionOf(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot <= 0 ? "" : name.slice(dot + 1).toLowerCase();
+}
+
+const TYPE_NAMES: Record<string, string> = {
+  png: "PNG image",
+  jpg: "JPEG image",
+  jpeg: "JPEG image",
+  gif: "GIF image",
+  webp: "WebP image",
+  avif: "AVIF image",
+  bmp: "Bitmap image",
+  svg: "SVG image",
+  ico: "Icon",
+  pdf: "PDF document",
+  csv: "CSV file",
+  tsv: "TSV file",
+  json: "JSON file",
+  xml: "XML file",
+  yml: "YAML file",
+  yaml: "YAML file",
+  toml: "TOML file",
+  md: "Markdown",
+  txt: "Text file",
+  log: "Log file",
+  html: "HTML file",
+  css: "CSS file",
+  js: "JavaScript file",
+  mjs: "JavaScript file",
+  cjs: "JavaScript file",
+  ts: "TypeScript file",
+  tsx: "TSX file",
+  jsx: "JSX file",
+  vue: "Vue component",
+  rs: "Rust source",
+  py: "Python source",
+  go: "Go source",
+  php: "PHP source",
+  rb: "Ruby source",
+  java: "Java source",
+  kt: "Kotlin source",
+  c: "C source",
+  h: "C header",
+  cpp: "C++ source",
+  cs: "C# source",
+  sh: "Shell script",
+  ps1: "PowerShell script",
+  bat: "Batch file",
+  sql: "SQL file",
+  zip: "Zip archive",
+  rar: "RAR archive",
+  "7z": "7z archive",
+  gz: "Gzip archive",
+  tar: "Tar archive",
+  mp3: "MP3 audio",
+  wav: "WAV audio",
+  flac: "FLAC audio",
+  mp4: "MP4 video",
+  webm: "WebM video",
+  mov: "QuickTime video",
+  mkv: "Matroska video",
+  docx: "Word document",
+  xlsx: "Excel workbook",
+  pptx: "PowerPoint deck",
+  epub: "EPUB book",
+};
+
+/** Explorer-style type column: "WebP image", "TypeScript file", "File", "Folder". */
+export function typeLabel(name: string, kind: Row["kind"] = "file"): string {
+  if (kind === "folder") return "Folder";
+  return TYPE_NAMES[extensionOf(name)] ?? (extensionOf(name) ? `${extensionOf(name).toUpperCase()} file` : "File");
 }

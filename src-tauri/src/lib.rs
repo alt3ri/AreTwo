@@ -1,8 +1,9 @@
 mod dpapi;
 mod r2;
 mod store;
+mod walk;
 
-use r2::{FolderStats, ListPage, ObjectInfo, R2, TextPreview};
+use r2::{FolderStats, ListPage, ObjectInfo, R2, SearchResult, TextPreview};
 use tauri::{AppHandle, State};
 
 #[tauri::command]
@@ -79,7 +80,7 @@ async fn upload_object(
     transfer_id: String,
     replace: bool,
 ) -> Result<(), String> {
-    r2.upload(&app, &profile_id, &bucket, &key, &path, &transfer_id, replace)
+    r2.upload(Some(&app), &profile_id, &bucket, &key, &path, &transfer_id, replace)
         .await
 }
 
@@ -93,7 +94,7 @@ async fn download_object(
     dest_path: String,
     transfer_id: String,
 ) -> Result<(), String> {
-    r2.download(&app, &profile_id, &bucket, &key, &dest_path, &transfer_id)
+    r2.download(Some(&app), &profile_id, &bucket, &key, &dest_path, &transfer_id)
         .await
 }
 
@@ -126,6 +127,19 @@ async fn folder_stats(
     prefix: String,
 ) -> Result<FolderStats, String> {
     r2.folder_stats(&profile_id, &bucket, &prefix).await
+}
+
+#[tauri::command]
+async fn search_objects(
+    r2: State<'_, R2>,
+    profile_id: String,
+    bucket: String,
+    prefix: String,
+    query: String,
+    limit: i64,
+) -> Result<SearchResult, String> {
+    r2.search_objects(&profile_id, &bucket, &prefix, &query, limit)
+        .await
 }
 
 #[tauri::command]
@@ -233,12 +247,14 @@ pub fn run() {
             test_connection,
             presign_get,
             folder_stats,
+            search_objects,
             delete_objects,
             delete_prefix,
             copy_object,
             copy_prefix,
             create_folder,
             create_file,
+            walk::expand_upload_paths,
             reveal_in_explorer
         ])
         .run(tauri::generate_context!())
