@@ -92,16 +92,6 @@ node --experimental-strip-types scripts/rows.check.ts   # asserts on the pure fr
 
 `pnpm dev` in a plain browser has no Tauri IPC, so the app cannot talk to R2. It now prints that in the window instead of throwing `Cannot read properties of undefined (reading 'invoke')`.
 
-### Build times (this machine)
-
-| Command | First run | Later runs |
-| --- | --- | --- |
-| `pnpm tauri dev` | ~13 min (compiles `aws-sdk-s3`, `tauri`, …) | seconds — frontend only |
-| `pnpm tauri build` | ~13 min | ~5 min (relink + bundle) |
-| `pnpm build` | seconds | under a second |
-
----
-
 ## Release build
 
 ```powershell
