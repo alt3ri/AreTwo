@@ -1,6 +1,4 @@
-<img src="src-tauri/icons/128x128.png" alt="R2 Explorer icon" width="80" height="80" />
-
-# R2 Explorer
+# AreTwo - R2 Explorer
 
 A Windows desktop app for browsing and managing Cloudflare R2 buckets over the S3 API, built to behave like File Explorer rather than like a web dashboard. Tauri 2 shell, Rust backend (AWS S3 SDK), Vue 3 frontend. R2 credentials never reach the webview, and nothing sits between the app and R2.
 
