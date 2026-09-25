@@ -495,7 +495,7 @@ async function guard(tab: Tab, work: () => Promise<unknown>) {
     await refresh(tab, false);
   } catch (e) {
     tab.error = String(e);
-    await message(String(e), { title: "R2 Explorer", kind: "error" });
+    await message(String(e), { title: "AreTwo - R2 Explorer", kind: "error" });
   }
 }
 
@@ -918,7 +918,7 @@ onUnmounted(() => window.removeEventListener("keydown", onKeyDown));
   <div class="app" @click="closeActionMenus">
     <div v-if="uploadDragging" class="dropzone">Drop files or folders to upload</div>
     <header class="tabbar">
-      <span class="app-name"><img :src="appIcon" alt="" width="24" height="24" /> R2 <span>Explorer</span></span>
+      <span class="app-name"><img :src="appIcon" alt="" width="24" height="24" /> AreTwo <span>- R2 Explorer</span></span>
       <div class="tabs" aria-label="Open locations">
         <div v-for="tab in tabs" :key="tab.id" class="tab" :class="{ on: tab.id === activeId }">
           <button type="button" class="tab-select" :aria-current="tab.id === activeId ? 'page' : undefined"

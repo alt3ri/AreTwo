@@ -13,7 +13,7 @@ if ("__TAURI_INTERNALS__" in window) {
     node.style.cssText =
       "padding:24px;font:13px/1.6 'Segoe UI',system-ui,sans-serif;color:#dfe1e6;background:#16181c;height:100vh";
     node.textContent =
-      "R2 Explorer needs its desktop shell for the R2 connection. Start it with `pnpm tauri dev`, " +
-      "or run the installed R2Explorer.exe (R2Explorer-Setup-x64.exe). A plain browser tab cannot talk to R2.";
+      "AreTwo - R2 Explorer needs its desktop shell for the R2 connection. Start it with `pnpm tauri dev`, " +
+      "or run the installed aretwo.exe. A plain browser tab cannot talk to R2.";
   }
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import UiIcon from "./UiIcon.vue";
+import FileIcon from "./FileIcon.vue";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { formatBytes, previewKind, typeLabel, type Row } from "../rows";
 import { errorFor, peek, request } from "../stores/thumbs";
@@ -123,7 +124,8 @@ onUnmounted(() => observer?.disconnect());
           <img v-if="thumb(tile.row)" :src="thumb(tile.row)" alt="" loading="lazy" />
           <span v-else-if="failure(tile.row)" class="ph warn">no preview</span>
           <span v-else-if="isImage(tile.row)" class="ph">…</span>
-          <UiIcon v-else class="file-glyph" :class="{ folder: tile.row.kind === 'folder' }" :name="tile.row.bucketName ? 'bucket' : tile.row.kind === 'folder' ? 'folder' : 'file'" />
+          <UiIcon v-else-if="tile.row.kind === 'folder'" class="file-glyph folder" :name="tile.row.bucketName ? 'bucket' : 'folder'" />
+          <FileIcon v-else class="file-glyph" :name="tile.row.name" />
         </span>
         <span class="cap">{{ tile.row.name }}</span>
         <span class="sub">{{

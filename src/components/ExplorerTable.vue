@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import UiIcon from "./UiIcon.vue";
+import FileIcon from "./FileIcon.vue";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   ROW_HEIGHT,
@@ -310,7 +311,8 @@ watch(
           :title="cellText(item.row, col.key)"
         >
           <template v-if="col.key === 'name'">
-            <UiIcon class="ico" :class="{ folder: item.row.kind === 'folder' }" :name="item.row.bucketName ? 'bucket' : item.row.kind === 'folder' ? 'folder' : 'file'" />
+            <UiIcon v-if="item.row.kind === 'folder'" class="ico folder" :name="item.row.bucketName ? 'bucket' : 'folder'" />
+            <FileIcon v-else class="ico" :name="item.row.name" />
             <span class="nm">{{ item.row.name }}</span>
           </template>
           <template v-else>{{ cellText(item.row, col.key) }}</template>

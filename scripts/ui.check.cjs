@@ -63,6 +63,11 @@ const fs = require('node:fs');
     await page.goto('http://localhost:1420');
     await page.locator('.row').first().waitFor();
     assert.equal(await page.locator('.row').count(), 9);
+    await page.waitForFunction(() => [...document.querySelectorAll('.row .file-icon')].length === 6 && [...document.querySelectorAll('.row .file-icon')].every(img => img.complete && img.naturalWidth > 0));
+    for (const [name, icon] of [['README.md', 'readme'], ['manifest.json', 'json'], ['backup.zip', 'zip']]) {
+      const src = await page.locator('.row').filter({ hasText: name }).locator('.file-icon').getAttribute('src');
+      assert(src.endsWith(`/material/${icon}.svg`), `${name}: incorrect icon`);
+    }
     await page.screenshot({ path: `${shots}/desktop.png` });
     await page.getByLabel('Filter this folder').fill('manifest');
     assert.equal(await page.locator('.row').count(), 1);
@@ -75,6 +80,7 @@ const fs = require('node:fs');
     await page.getByRole('button', { name: 'Close preview' }).click();
     await page.getByLabel('Gallery view').click();
     assert.equal(await page.locator('.tile').count(), 9);
+    await page.waitForFunction(() => [...document.querySelectorAll('.tile .file-icon')].length === 6 && [...document.querySelectorAll('.tile .file-icon')].every(img => img.complete && img.naturalWidth > 0));
     await page.screenshot({ path: `${shots}/gallery.png` });
     await page.getByLabel('Details view').click();
     await page.getByRole('button', { name: 'Search bucket', exact: true }).click();

@@ -1,6 +1,4 @@
-<img src="src-tauri/icons/128x128.png" alt="R2 Explorer icon" width="80" height="80" />
-
-# R2 Explorer
+# AreTwo - R2 Explorer
 
 A Windows desktop app for browsing and managing Cloudflare R2 buckets over the S3 API, built to behave like File Explorer rather than like a web dashboard. Tauri 2 shell, Rust backend (AWS S3 SDK), Vue 3 frontend. R2 credentials never reach the webview, and nothing sits between the app and R2.
 
@@ -79,7 +77,7 @@ pnpm tauri dev          # full app: Vite dev server + debug Rust binary + HMR
 
 * Frontend edits hot-reload. Rust edits rebuild and restart the window.
 * The webview loads `http://localhost:1420` (fixed port — `strictPort` is on, so something else on 1420 makes dev fail loudly).
-* Debug binary: `src-tauri\target\debug\r2-explorer.exe`. `cargo build` alone embeds whatever is currently in `dist\`, so run `pnpm build` first if you care about the assets inside it.
+* Debug binary: `src-tauri\target\debug\aretwo.exe`. `cargo build` alone embeds whatever is currently in `dist\`, so run `pnpm build` first if you care about the assets inside it.
 
 Other dev commands:
 
@@ -102,9 +100,9 @@ Artifacts, all under `src-tauri\target\release\`:
 
 | File | Size | Use |
 | --- | --- | --- |
-| `r2-explorer.exe` | ~11.6 MB | portable — run it directly, no install |
-| `bundle\nsis\R2 Explorer_0.1.0_x64-setup.exe` | ~3.9 MB | installer (per-user, adds Start Menu entry) |
-| `bundle\msi\R2 Explorer_0.1.0_x64_en-US.msi` | ~5.7 MB | MSI for managed deployment |
+| `aretwo.exe` | ~11.6 MB | portable — run it directly, no install |
+| `bundle\nsis\AreTwo - R2 Explorer_0.1.0_x64-setup.exe` | ~3.9 MB | installer (per-user, adds Start Menu entry) |
+| `bundle\msi\AreTwo - R2 Explorer_0.1.0_x64_en-US.msi` | ~5.7 MB | MSI for managed deployment |
 
 Useful variants:
 
@@ -118,7 +116,7 @@ Notes:
 
 * The build embeds `dist\` — `beforeBuildCommand` runs `pnpm build` for you, so never ship a stale frontend.
 * Builds are **unsigned**. Windows SmartScreen will warn on first launch of a downloaded copy; that needs a code-signing certificate (not configured yet).
-* Artifact names come from `productName` in `src-tauri\tauri.conf.json` (`"R2 Explorer"`, hence the space). Change it to `R2Explorer` if you want `R2Explorer_0.1.0_x64-setup.exe`.
+* Installer names come from `productName` in `src-tauri\tauri.conf.json` (`"AreTwo - R2 Explorer"`). The executable is `aretwo.exe`.
 * Config lives in `%APPDATA%\R2Explorer\`, caches nowhere yet — deleting that folder resets the app.
 
 ---
@@ -192,72 +190,6 @@ Read-only connections: tick the box and every mutating command (upload, create, 
 
 ---
 
-## Architecture
-
-```
-Vue 3 webview (density-focused UI)
-   │  invoke("command", { camelCaseArgs })            ▲  event "transfer://progress"
-   ▼                                                  │
-Rust backend (src-tauri/src)
-   ├── lib.rs    23 #[tauri::command]s
-   ├── r2.rs     S3 client, pagination, prefix stats, search, copy/delete, presign
-   ├── store.rs  profiles.json + credentials.dat
-   ├── dpapi.rs  CryptProtectData/CryptUnprotectData wrapper
-   └── walk.rs   expands dropped folders into upload lists
-   │
-   ├── aws-sdk-s3 (path-style, region "auto") ──▶ Cloudflare R2
-   └── %APPDATA%\R2Explorer\  (profiles + sealed secrets)
-```
-
-Security boundaries:
-
-* The **secret access key never reaches the frontend** — profile JSON holds the access key ID only; the secret is DPAPI-sealed (`credentials.dat`, per-user, no entropy) and unsealed inside the Rust client.
-* Mutating commands funnel through one `write_conn()` guard, so read-only cannot be bypassed by adding a command later.
-* `tauri.conf.json` sets a CSP; the capability file grants only `core:default`, `opener:default`, `dialog:default`.
-* Previewed content is downloaded as bytes and rendered by the webview; nothing is executed from the bucket.
-
-Where state lives:
-
-| What | Where |
-| --- | --- |
-| Profiles (no secrets) | `%APPDATA%\R2Explorer\profiles.json` |
-| DPAPI-sealed secrets | `%APPDATA%\R2Explorer\credentials.dat` |
-| Column layout | `localStorage["r2explorer.columns.v1"]` |
-| View mode (details/gallery) | `localStorage["r2explorer.view"]` |
-| Preview pane width | `localStorage["r2explorer.previewWidth"]` |
-
----
-
-## Project layout
-
-```
-src/
-  App.vue                  shell: tabs, navigation, menu, dialogs, keyboard map
-  api.ts                   the only place that calls invoke()
-  rows.ts                  pure helpers: rows, sorting, filtering, formatting, labels
-  types.ts                 wire contract with the Rust side (camelCase)
-  components/
-    ExplorerTable.vue      virtualized details table, resizable/toggleable columns
-    GalleryView.vue        virtualized tile grid
-    PreviewPane.vue        code/image/folder preview
-    ProfilesDialog.vue     connection manager
-    PropertiesDialog.vue   object properties
-    PresignDialog.vue      temporary links
-    TransfersPanel.vue     queue UI
-    ContextMenu.vue        shared menu
-  stores/
-    transfers.ts           queue, progress events, taskbar progress
-    folderStats.ts         cached prefix scans
-    thumbs.ts              bounded image cache for the gallery
-    dnd.ts                 drag-and-drop upload wiring
-scripts/rows.check.ts      assert-based self-check for rows.ts
-src-tauri/src/             Rust backend (see Architecture)
-```
-
-Harness files (`harness-tasks.json`, `harness-progress.txt`, `.harness-active`) drive long-running agent work and are gitignored — they are not part of the app.
-
----
-
 ## Testing
 
 Offline (always safe):
@@ -266,6 +198,7 @@ Offline (always safe):
 cargo test --manifest-path src-tauri/Cargo.toml        # unit tests incl. prefix maths, copy-source encoding, wildcard search, DPAPI round trip
 node --experimental-strip-types scripts/rows.check.ts  # pure frontend logic
 pnpm build                                             # types + bundle
+pnpm test                                              # frontend helpers + file icon mappings/assets
 ```
 
 Live smoke test against a real bucket (writes and then deletes objects):
@@ -279,8 +212,6 @@ cargo test --manifest-path src-tauri/Cargo.toml -- --ignored --nocapture live_
 It walks a bucket, scans one prefix, searches `*.webp`, uploads/downloads a small file and a 10 MiB file (multipart), fetches a presigned URL with `curl` and asserts HTTP 200, copies a key containing spaces and Japanese characters, and deletes everything it created under `_r2explorer-smoketest/`. It is skipped unless `--ignored` is passed.
 
 Both environment variables are required; the test has no default account or bucket. Use a dedicated test bucket. UI checks use mocked R2 data; live operations require your own credentials.
-
----
 
 ## Troubleshooting
 
@@ -316,3 +247,7 @@ VS Code + [Vue - Official](https://marketplace.visualstudio.com/items?itemName=V
 ## License
 
 Not specified yet.
+
+### Third-party icons
+
+File-type SVG icons are from [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme) by Material Extensions, used under the MIT license. The unmodified subset is included in [`public/icons/material`](public/icons/material), with the full [copyright and license notice](public/icons/material/LICENSE). App branding and toolbar icons are separate from this set.

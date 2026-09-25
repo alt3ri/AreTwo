@@ -1,7 +1,7 @@
 [package]
-name = "r2-explorer"
+name = "aretwo"
 version = "0.1.0"
-description = "R2 Explorer - browse Cloudflare R2 like a local drive"
+description = "AreTwo - R2 Explorer: browse Cloudflare R2 like a local drive"
 authors = ["you"]
 edition = "2021"
 

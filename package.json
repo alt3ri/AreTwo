@@ -1,11 +1,13 @@
 {
-  "name": "tauri-app",
+  "name": "aretwo",
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "pnpm@11.11.0",
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "test": "node --experimental-strip-types scripts/rows.check.ts && node --experimental-strip-types scripts/icons.check.ts",
     "preview": "vite preview",
     "tauri": "tauri"
   },
