@@ -246,7 +246,7 @@ VS Code + [Vue - Official](https://marketplace.visualstudio.com/items?itemName=V
 
 ## License
 
-Not specified yet.
+AreTwo is licensed under the [MIT License](LICENSE).
 
 ### Third-party icons
 
