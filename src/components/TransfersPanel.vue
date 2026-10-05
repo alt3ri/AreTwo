@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import * as api from "../api";
 import { formatBytes } from "../rows";
-import { useTransfers } from "../stores/transfers";
+import { useTransfers, type Transfer } from "../stores/transfers";
 
 const emit = defineEmits<{ close: [] }>();
 
@@ -17,6 +18,19 @@ const {
   clearCompleted,
   togglePause,
 } = useTransfers();
+
+// ponytail: renders at most LIMIT rows. A full v-for over a big folder upload re-diffed
+// every row on each progress event and froze the window; virtualize if all rows must scroll.
+const LIMIT = 200;
+/** Active and failed first, then newest first. */
+const shown = computed(() => {
+  const pinned = items.filter((t) => t.status === "active" || t.status === "failed").slice(0, LIMIT);
+  const rest: Transfer[] = [];
+  for (let i = items.length - 1; i >= 0 && pinned.length + rest.length < LIMIT; i--) {
+    if (items[i].status !== "active" && items[i].status !== "failed") rest.push(items[i]);
+  }
+  return pinned.concat(rest);
+});
 
 function percent(transferred: number, total: number): number {
   return total > 0 ? Math.min(100, Math.round((transferred / total) * 100)) : 0;
@@ -52,7 +66,7 @@ async function reveal(path: string) {
     <p v-if="!items.length" class="none">No transfers yet.</p>
 
     <ul class="list">
-      <li v-for="t in items" :key="t.id" :class="t.status">
+      <li v-for="t in shown" :key="t.id" :class="t.status">
         <div class="line">
           <span class="arrow">{{ t.kind === "upload" ? "↑" : "↓" }}</span>
           <span class="name">{{ t.name }}</span>
@@ -86,6 +100,7 @@ async function reveal(path: string) {
         <p v-if="t.error" class="err">{{ t.error }}</p>
       </li>
     </ul>
+    <p v-if="items.length > shown.length" class="none">{{ items.length - shown.length }} more not shown</p>
   </section>
 </template>
 

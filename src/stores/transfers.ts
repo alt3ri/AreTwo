@@ -1,6 +1,6 @@
 // Transfer queue: real byte progress from Rust (`transfer://progress`), 3 concurrent jobs.
 // ponytail: one global queue, no per-profile lanes; add lanes only if a slow profile starves a fast one.
-import { computed, reactive, ref, watch } from "vue";
+import { computed, reactive, ref } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import {
   ProgressBarStatus,
@@ -35,7 +35,9 @@ const MAX_PARALLEL = 3;
 const items = reactive<Transfer[]>([]);
 const queuePaused = ref(false);
 let seq = 0;
+let running = 0;
 let listening = false;
+let lastBar = "";
 const last = new Map<string, { at: number; bytes: number }>();
 
 function progress(p: TransferProgress) {
@@ -74,15 +76,20 @@ function taskbar() {
   else if (!total) state = { status: ProgressBarStatus.Indeterminate, progress: 0 };
   else state = { status: ProgressBarStatus.Normal, progress: percent };
 
+  const key = JSON.stringify(state);
+  if (key === lastBar) return;
+  lastBar = key;
   void getCurrentWindow()
     .setProgressBar(state)
     .catch(() => {});
 }
 
-watch(() => items.map((t) => `${t.status}:${t.transferred}:${t.total}`).join(), taskbar);
-watch(queuePaused, taskbar);
+// ponytail: polled, not watched. A watch re-summed every item on each progress event,
+// which stalled the UI once a folder upload queued thousands of files.
+setInterval(taskbar, 1000);
 
 async function run(t: Transfer) {
+  running++;
   t.status = "active";
   t.startedAt = Date.now();
   t.error = undefined;
@@ -104,12 +111,15 @@ async function run(t: Transfer) {
     if (t.status === "failed") t.error = msg;
     t.speed = 0;
   }
+  running--;
   pump();
 }
 
 function pump() {
   if (queuePaused.value) return;
-  let slots = MAX_PARALLEL - items.filter((t) => t.status === "active").length;
+  // `running` instead of counting `active` items: enqueue calls pump once per file,
+  // and an O(n) count there made queueing a big folder O(n²).
+  let slots = MAX_PARALLEL - running;
   for (const t of items) {
     if (slots <= 0) break;
     if (t.status !== "queued") continue;
@@ -129,7 +139,9 @@ function enqueue(t: Omit<Transfer, "id" | "status" | "transferred" | "total" | "
     speed: 0,
     eta: 0,
   };
-  items.unshift(item);
+  // push, not unshift: unshift on a reactive array rewrites every index (O(n) per file).
+  // The panel shows newest first.
+  items.push(item);
   pump();
   return item;
 }
@@ -171,9 +183,12 @@ export function useTransfers() {
       if (i >= 0 && items[i].status !== "active") items.splice(i, 1);
     },
     clearCompleted: () => {
-      for (let i = items.length - 1; i >= 0; i--) {
-        if (items[i].status === "done" || items[i].status === "canceled") items.splice(i, 1);
+      // Compact in place: one splice per finished item is O(n²) on a big queue.
+      let kept = 0;
+      for (const t of items) {
+        if (t.status !== "done" && t.status !== "canceled") items[kept++] = t;
       }
+      items.length = kept;
     },
     togglePause: () => {
       queuePaused.value = !queuePaused.value;
